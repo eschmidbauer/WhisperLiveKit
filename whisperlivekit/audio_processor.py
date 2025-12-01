@@ -74,6 +74,7 @@ class AudioProcessor:
         self.bytes_per_sec = self.samples_per_sec * self.bytes_per_sample
         self.max_bytes_per_sec = 32000 * 5  # 5 seconds of audio at 32 kHz
         self.is_pcm_input = self.args.pcm_input
+        self.energy_gate_rms = getattr(self.args, "energy_gate_rms", 1e-4)
 
         # State management
         self.is_stopping: bool = False
@@ -622,6 +623,14 @@ class AudioProcessor:
                 if pre_silence_chunk is not None and pre_silence_chunk.size > 0:
                     await self._enqueue_active_audio(pre_silence_chunk)
                 await self._begin_silence()
+
+        rms = float(np.sqrt(np.mean(np.square(pcm_array)))) if pcm_array.size else 0.0
+        low_energy = rms < self.energy_gate_rms
+        if low_energy:
+            if not self.current_silence:
+                await self._begin_silence()
+            self.total_pcm_samples = chunk_sample_end
+            return
 
         if not self.current_silence:
             await self._enqueue_active_audio(pcm_array)
