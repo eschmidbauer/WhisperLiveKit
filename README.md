@@ -1,6 +1,7 @@
 <h1 align="center">WLK</h1>
 <p align="center"><b>WhisperLiveKit: Ultra-low-latency, self-hosted speech-to-text with speaker identification</b></p>
 
+> Note: this fork is trimmed to the core Simul-Whisper + Silero VAD WebSocket server. Translation, diarization, LocalAgreement, the bundled web UI, and compressed/FFmpeg input paths have been removed (PCM-only). Source now lives under `src/whisperlivekit/` (src layout).
 
 <p align="center">
 <img src="https://raw.githubusercontent.com/QuentinFuxa/WhisperLiveKit/refs/heads/main/demo.png" alt="WhisperLiveKit Demo" width="730">
@@ -37,67 +38,21 @@
 
 *The backend supports multiple concurrent users. Voice Activity Detection reduces overhead when no voice is detected.*
 
-### Installation & Quick Start
+### Quick Start (source-only)
 
-```bash
-pip install whisperlivekit
-```
-> You can also clone the repo and `pip install -e .` for the latest version.
-
-#### Quick Start
-1. **Start the transcription server:**
+1. **Install dependencies** into your environment (torch/fastapi/uvicorn/websockets, etc.).
+2. **Start the transcription server from source (PCM-only)**:
    ```bash
-   wlk --model base --language en
+   PYTHONPATH=src python server.py
    ```
+   Adjust `DEFAULT_CONFIG` at the top of `server.py` for host/port/model/language, etc.
+3. **Stream audio** using `example_client.py --wav alexi-16K.wav --host localhost --port 8000` (or `--mic` for live input).
 
-2. **Open your browser** and navigate to `http://localhost:8000`. Start speaking and watch your words appear in real-time!
-
-
-> - See [here](https://github.com/QuentinFuxa/WhisperLiveKit/blob/main/whisperlivekit/simul_whisper/whisper/tokenizer.py) for the list of all available languages.
-> - Check the [troubleshooting guide](docs/troubleshooting.md) for step-by-step fixes collected from recent GPU setup/env issues.
-> - The CLI entry point is exposed as both `wlk` and `whisperlivekit-server`; they are equivalent.
-> - For HTTPS requirements, see the **Parameters** section for SSL configuration options.
+> - See `src/whisperlivekit/simul_whisper/whisper/tokenizer.py` for available languages.
+> - Check the [troubleshooting guide](docs/troubleshooting.md) for setup/env issues.
 
 
-#### Use it to capture audio from web pages.
-
-Go to `chrome-extension` for instructions.
-
-<p align="center">
-<img src="https://raw.githubusercontent.com/QuentinFuxa/WhisperLiveKit/refs/heads/main/chrome-extension/demo-extension.png" alt="WhisperLiveKit Demo" width="600">
-</p>
-
-
-
-#### Optional Dependencies
-
-| Optional | `pip install` |
-|-----------|-------------|
-| **Windows/Linux optimizations** | `faster-whisper` |
-| **Apple Silicon optimizations** | `mlx-whisper` |
-| **Translation** | `nllw` |
-| **Speaker diarization** | `git+https://github.com/NVIDIA/NeMo.git@main#egg=nemo_toolkit[asr]` |
-| OpenAI API | `openai` |
-| *[Not recommanded]*  Speaker diarization with Diart | `diart` |
-
-See  **Parameters & Configuration** below on how to use them.
-
-
-
-### Usage Examples
-
-**Command-line Interface**: Start the transcription server with various options:
-
-```bash
-# Large model and translate from french to danish
-wlk --model large-v3 --language fr --target-language da
-
-# Diarization and server listening on */80 
-wlk --host 0.0.0.0 --port 80 --model medium --diarization --language fr
-```
-
-
-**Python API Integration**: Check [basic_server](https://github.com/QuentinFuxa/WhisperLiveKit/blob/main/whisperlivekit/basic_server.py) for a more complete example of how to use the functions and classes.
+**Python API Integration**: See `server.py` for a minimal FastAPI/WebSocket server wired to the audio pipeline.
 
 ```python
 import asyncio
@@ -106,14 +61,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 
-from whisperlivekit import AudioProcessor, TranscriptionEngine, parse_args
+from whisperlivekit import AudioProcessor, TranscriptionEngine
 
 transcription_engine = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global transcription_engine
-    transcription_engine = TranscriptionEngine(model="medium", diarization=True, lan="en")
+    transcription_engine = TranscriptionEngine(model_size="base", lan="en")
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -137,7 +92,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await audio_processor.process_audio(message)        
 ```
 
-**Frontend Implementation**: The package includes an HTML/JavaScript implementation [here](https://github.com/QuentinFuxa/WhisperLiveKit/blob/main/whisperlivekit/web/live_transcription.html). You can also import it using `from whisperlivekit import get_inline_ui_html` & `page = get_inline_ui_html()`
+**Frontend Implementation**: Use your own client (see `example_client.py`) to stream raw PCM to `/asr`.
 
 
 ## Parameters & Configuration
@@ -160,7 +115,7 @@ async def websocket_endpoint(websocket: WebSocket):
 | `--ssl-certfile` | Path to the SSL certificate file (for HTTPS support) | `None` |
 | `--ssl-keyfile` | Path to the SSL private key file (for HTTPS support) | `None` |
 | `--forwarded-allow-ips` | Ip or Ips allowed to reverse proxy the whisperlivekit-server. Supported types are  IP Addresses (e.g. 127.0.0.1), IP Networks (e.g. 10.100.0.0/16), or Literals (e.g. /path/to/socket.sock) | `None` |
-| `--pcm-input` | raw PCM (s16le) data is expected as input and FFmpeg will be bypassed. Frontend will use AudioWorklet instead of MediaRecorder | `False` |
+| (PCM only) | Server expects raw 16 kHz mono s16le PCM. |
 | `--lora-path` | Path or Hugging Face repo ID for LoRA adapter weights (e.g., `qfuxa/whisper-base-french-lora`). Only works with native Whisper backend (`--backend whisper`) | `None` |
 
 | Translation options | Description | Default |
@@ -229,47 +184,6 @@ To deploy WhisperLiveKit in production:
     ```
 
 4. **HTTPS Support**: For secure deployments, use "wss://" instead of "ws://" in WebSocket URL
-
-## 🐋 Docker
-
-Deploy the application easily using Docker with GPU or CPU support.
-
-### Prerequisites
-- Docker installed on your system
-- For GPU support: NVIDIA Docker runtime installed
-
-### Quick Start
-
-**With GPU acceleration (recommended):**
-```bash
-docker build -t wlk .
-docker run --gpus all -p 8000:8000 --name wlk wlk
-```
-
-**CPU only:**
-```bash
-docker build -f Dockerfile.cpu -t wlk .
-docker run -p 8000:8000 --name wlk wlk
-```
-
-### Advanced Usage
-
-**Custom configuration:**
-```bash
-# Example with custom model and language
-docker run --gpus all -p 8000:8000 --name wlk wlk --model large-v3 --language fr
-```
-
-### Memory Requirements
-- **Large models**: Ensure your Docker runtime has sufficient memory allocated
-
-
-#### Customization
-
-- `--build-arg` Options:
-  - `EXTRAS="whisper-timestamped"` - Add extras to the image's installation (no spaces). Remember to set necessary container options!
-  - `HF_PRECACHE_DIR="./.cache/"` - Pre-load a model cache for faster first-time start
-  - `HF_TKN_FILE="./token"` - Add your Hugging Face Hub access token to download gated models
 
 ## 🔮 Use Cases
 Capture discussions in real-time for meeting transcription, help hearing-impaired users follow conversations through accessibility tools, transcribe podcasts or videos automatically for content creation, transcribe support calls with speaker identification for customer service...

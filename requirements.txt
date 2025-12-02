@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+websockets
+librosa
+soundfile
+torch
+torchaudio
+huggingface-hub
+tqdm
+tiktoken
